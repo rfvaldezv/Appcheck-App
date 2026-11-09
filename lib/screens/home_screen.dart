@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 import '../services/storage_service.dart';
 import '../theme/app_theme.dart';
 import 'camera_screen.dart';
+import 'huella_screen.dart';
+import 'confirmation_screen.dart';
 import 'login_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -13,6 +16,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   String? _nombre;
+  String? _metodo;
+  bool _procesando = false;
+  String? _error;
 
   @override
   void initState() {
@@ -22,7 +28,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _cargarSesion() async {
     final nombre = await StorageService.leerNombreEmpleado();
-    if (mounted) setState(() => _nombre = nombre);
+    final metodo = await StorageService.leerMetodo();
+    if (mounted) {
+      setState(() {
+        _nombre = nombre;
+        _metodo = metodo ?? 'ID+Rostro';
+      });
+    }
   }
 
   Future<void> _cerrarSesion() async {
@@ -31,6 +43,111 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
+  }
+
+  String _descripcionMetodo() {
+    switch (_metodo) {
+      case 'QR':
+        return 'Checar con código QR';
+      case 'QR+Rostro':
+        return 'Checar con QR + Rostro';
+      case 'ID+PIN':
+        return 'Checar con ID + PIN';
+      case 'ID+Rostro':
+        return 'Checar con ID + Rostro';
+      case 'Rostro':
+        return 'Checar con Rostro';
+      case 'Huella':
+        return 'Checar con Huella';
+      default:
+        return 'Checar';
+    }
+  }
+
+  IconData _iconoMetodo() {
+    switch (_metodo) {
+      case 'QR':
+      case 'QR+Rostro':
+        return Icons.qr_code_scanner;
+      case 'ID+PIN':
+        return Icons.pin;
+      case 'ID+Rostro':
+      case 'Rostro':
+        return Icons.camera_alt;
+      case 'Huella':
+        return Icons.fingerprint;
+      default:
+        return Icons.check_circle;
+    }
+  }
+
+  Future<void> _checar() async {
+    if (_procesando) return;
+
+    final metodo = _metodo ?? 'ID+Rostro';
+
+    // Si el método NO requiere cámara, registrar directo
+    if (metodo == 'QR' || metodo == 'ID+PIN') {
+      setState(() {
+        _procesando = true;
+        _error = null;
+      });
+
+      try {
+        final numero = await StorageService.leerNumeroEmpleado();
+        final pin = await StorageService.leerPin();
+        if (numero == null || pin == null) {
+          throw Exception('Sesión expirada. Vuelve a iniciar sesión.');
+        }
+
+        final response = await ApiService.registrarChecadaEmpleado(
+          numeroEmpleado: numero,
+          pin: pin,
+          metodoUsado: metodo,
+        );
+
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ConfirmationScreen(
+              mensaje: response['mensaje'] as String,
+              tipoChecada: response['tipoChecada'] as String,
+              nombreEmpleado: response['empleado']['nombreCompleto'] as String,
+              hash: response['hash'] as String,
+              timestamp: response['timestampServidor'] as String,
+            ),
+          ),
+        );
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _error = e.toString().replaceFirst('Exception: ', '');
+          });
+        }
+      } finally {
+        if (mounted) setState(() => _procesando = false);
+      }
+      return;
+    }
+
+    // Si es Huella, ir a HuellaScreen
+    if (metodo == 'Huella') {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const HuellaScreen()),
+      );
+      return;
+    }
+
+    // Si requiere cámara, ir a CameraScreen
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CameraScreen(metodoUsado: metodo),
+      ),
     );
   }
 
@@ -63,37 +180,53 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
-                    '¿Listo para checar?',
-                    style: TextStyle(fontSize: 16, color: AppTheme.textSecondary),
+                  Text(
+                    'Método: ${_descripcionMetodo()}',
+                    style: const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
                   ),
                   const SizedBox(height: 48),
                   SizedBox(
                     width: double.infinity,
                     height: 120,
                     child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const CameraScreen()),
-                        );
-                      },
+                      onPressed: _procesando ? null : _checar,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.primary,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
                       ),
-                      child: const Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt, size: 48),
-                          SizedBox(height: 8),
-                          Text('Checar ahora', style: TextStyle(fontSize: 20)),
-                        ],
-                      ),
+                      child: _procesando
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(_iconoMetodo(), size: 48),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _descripcionMetodo(),
+                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
                     ),
                   ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: AppTheme.error),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

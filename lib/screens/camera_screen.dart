@@ -9,7 +9,8 @@ import '../theme/app_theme.dart';
 import 'confirmation_screen.dart';
 
 class CameraScreen extends StatefulWidget {
-  const CameraScreen({super.key});
+  final String metodoUsado;
+  const CameraScreen({super.key, this.metodoUsado = 'ID+Rostro'});
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -137,7 +138,7 @@ class _CameraScreenState extends State<CameraScreen> {
       final response = await ApiService.registrarChecadaEmpleado(
         numeroEmpleado: numero,
         pin: pin,
-        metodoUsado: 'ID+Rostro',
+        metodoUsado: widget.metodoUsado,  // ← DINÁMICO
         fotoBase64: fotoBase64,
         latitud: ubicacion?['latitud'],
         longitud: ubicacion?['longitud'],

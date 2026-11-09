@@ -773,6 +773,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.1"
+  web_authn_web:
+    dependency: "direct main"
+    description:
+      name: web_authn_web
+      sha256: "571503416f7352455e76f07c25b930c37dae02418e3f0723ccb1a51a108a60b0"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.5"
   win32:
     dependency: transitive
     description:

@@ -68,13 +68,27 @@ class StorageService {
     return numero != null && numero.isNotEmpty;
   }
 
+  static Future<void> borrarTodo() async {
+    await _storage.deleteAll();
+  }
+
+  // =====================================================
+  // Método de lectura del empleado
+  // =====================================================
+  static const _keyMetodoLectura = 'metodo_lectura';
+
+  static Future<void> guardarMetodo(String metodo) async {
+    await _storage.write(key: _keyMetodoLectura, value: metodo);
+  }
+
+  static Future<String?> leerMetodo() async {
+    return await _storage.read(key: _keyMetodoLectura);
+  }
+
   static Future<void> cerrarSesion() async {
     await _storage.delete(key: _keyNumeroEmpleado);
     await _storage.delete(key: _keyNombreEmpleado);
     await _storage.delete(key: _keyPin);
-  }
-
-  static Future<void> borrarTodo() async {
-    await _storage.deleteAll();
+    await _storage.delete(key: _keyMetodoLectura);
   }
 }

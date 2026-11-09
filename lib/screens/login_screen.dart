@@ -38,11 +38,14 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       final nombre = response['nombre'] as String;
+      final metodoLectura = response['metodoLectura'] as String? ?? 'ID+Rostro';
+
       await StorageService.guardarSesion(
         numeroEmpleado: numero,
         nombre: nombre,
         pin: pin,
       );
+      await StorageService.guardarMetodo(metodoLectura);
 
       if (!mounted) return;
       Navigator.pushReplacement(
