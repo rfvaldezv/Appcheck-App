@@ -6,6 +6,7 @@ import 'camera_screen.dart';
 import 'huella_screen.dart';
 import 'confirmation_screen.dart';
 import 'login_screen.dart';
+import 'package:geolocator/geolocator.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -49,9 +50,9 @@ class _HomeScreenState extends State<HomeScreen> {
   String _descripcionMetodo() {
     switch (_metodo) {
       case 'QR':
-        return 'Checar con código QR';
+        return 'QR (solo Kiosko)';
       case 'QR+Rostro':
-        return 'Checar con QR + Rostro';
+        return 'QR + Rostro (solo Kiosko)';
       case 'ID+PIN':
         return 'Checar con ID + PIN';
       case 'ID+Rostro':
@@ -87,14 +88,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final metodo = _metodo ?? 'ID+Rostro';
 
-    // Si el método NO requiere cámara, registrar directo
-    if (metodo == 'QR' || metodo == 'ID+PIN') {
+    // 🆕 Validar métodos no disponibles en PWA
+    if (metodo == 'QR' || metodo == 'QR+Rostro') {
       setState(() {
-        _procesando = true;
-        _error = null;
+        _error = 'Este método solo está disponible en el Kiosko de oficina. '
+                 'Usa ID+PIN, ID+Rostro o Rostro desde tu celular.';
       });
+      return;
+    }
 
-      try {
+    // 🆕 SIEMPRE capturar GPS (antes de decidir el método)
+    setState(() {
+      _procesando = true;
+      _error = null;
+    });
+
+    try {
+      final ubicacion = await _obtenerUbicacion();
+
+      // Si el método NO requiere cámara, registrar directo
+      if (metodo == 'ID+PIN') {
         final numero = await StorageService.leerNumeroEmpleado();
         final pin = await StorageService.leerPin();
         if (numero == null || pin == null) {
@@ -105,6 +118,8 @@ class _HomeScreenState extends State<HomeScreen> {
           numeroEmpleado: numero,
           pin: pin,
           metodoUsado: metodo,
+          latitud: ubicacion?['latitud'],
+          longitud: ubicacion?['longitud'],
         );
 
         if (!mounted) return;
@@ -120,35 +135,66 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _error = e.toString().replaceFirst('Exception: ', '');
-          });
-        }
-      } finally {
-        if (mounted) setState(() => _procesando = false);
+        return;
       }
-      return;
-    }
 
-    // Si es Huella, ir a HuellaScreen
-    if (metodo == 'Huella') {
+      // Si es Huella, ir a HuellaScreen (Próximamente)
+      if (metodo == 'Huella') {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const HuellaScreen()),
+        );
+        return;
+      }
+
+      // Si requiere cámara (ID+Rostro, Rostro), ir a CameraScreen CON GPS
       if (!mounted) return;
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const HuellaScreen()),
+        MaterialPageRoute(
+          builder: (_) => CameraScreen(
+            metodoUsado: metodo,
+            latitud: ubicacion?['latitud'],
+            longitud: ubicacion?['longitud'],
+          ),
+        ),
       );
-      return;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _procesando = false);
     }
+  }
 
-    // Si requiere cámara, ir a CameraScreen
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => CameraScreen(metodoUsado: metodo),
-      ),
-    );
+  Future<Map<String, double>?> _obtenerUbicacion() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return null;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      return {
+        'latitud': position.latitude,
+        'longitud': position.longitude,
+      };
+    } catch (e) {
+      print('⚠️ No se pudo obtener ubicación: $e');
+      return null;
+    }
   }
 
   @override

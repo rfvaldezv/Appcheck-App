@@ -1,7 +1,5 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/api_service.dart';
 import '../services/storage_service.dart';
@@ -10,7 +8,15 @@ import 'confirmation_screen.dart';
 
 class CameraScreen extends StatefulWidget {
   final String metodoUsado;
-  const CameraScreen({super.key, this.metodoUsado = 'ID+Rostro'});
+  final double? latitud;
+  final double? longitud;
+
+  const CameraScreen({
+    super.key,
+    this.metodoUsado = 'ID+Rostro',
+    this.latitud,
+    this.longitud,
+  });
 
   @override
   State<CameraScreen> createState() => _CameraScreenState();
@@ -31,68 +37,12 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
-  Future<Map<String, double>?> _obtenerUbicacion() async {
-    try {
-      _log('📍 Verificando permisos de ubicación...');
-      
-      // Timeout global: si tarda >8s, seguir sin GPS
-      return await Future.any([
-        _obtenerUbicacionReal(),
-        Future.delayed(const Duration(seconds: 8), () {
-          _log('⚠️ Timeout de GPS (8s), continuando sin ubicación');
-          return null;
-        }),
-      ]);
-    } catch (e) {
-      _log('⚠️ GPS falló: $e');
-      return null;
-    }
-  }
-
-  Future<Map<String, double>?> _obtenerUbicacionReal() async {
-    try {
-      var permission = await Geolocator.checkPermission();
-      _log('📍 Permiso actual: $permission');
-      
-      if (permission == LocationPermission.denied) {
-        _log('📍 Solicitando permiso (puede requerir interacción del usuario)...');
-        
-        // ⚠️ En Safari iOS, esto puede NO resolver. El Future.any lo cubre.
-        permission = await Geolocator.requestPermission();
-        _log('📍 Permiso después de solicitar: $permission');
-      }
-      
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        _log('⚠️ Permiso denegado, continuando sin GPS');
-        return null;
-      }
-      
-      _log('📍 Obteniendo posición GPS...');
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 6),
-        ),
-      );
-      _log('✅ GPS obtenido: ${position.latitude}, ${position.longitude}');
-      return {
-        'latitud': position.latitude,
-        'longitud': position.longitude,
-      };
-    } catch (e) {
-      _log('⚠️ GPS real falló: $e');
-      return null;
-    }
-  }
-
   Future<void> _tomarFotoYChecar() async {
     if (_procesando) return;
-    
+
     setState(() {
       _procesando = true;
       _error = null;
-      _debugLog.clear();
     });
 
     try {
@@ -103,7 +53,7 @@ class _CameraScreenState extends State<CameraScreen> {
         imageQuality: 80,
         maxWidth: 800,
       );
-      
+
       if (foto == null) {
         _log('⚠️ Usuario canceló la cámara');
         if (mounted) setState(() => _procesando = false);
@@ -128,22 +78,21 @@ class _CameraScreenState extends State<CameraScreen> {
       }
       _log('✅ Sesión: $numero');
 
-      // Obtener ubicación (opcional, con timeout)
-      _log('📍 Obteniendo ubicación...');
-      final ubicacion = await _obtenerUbicacion();
+      // 🆕 Usar el GPS que viene del home_screen
+      _log('📍 Usando GPS del home: ${widget.latitud}, ${widget.longitud}');
 
       _log('🚀 Enviando checada al servidor...');
       final sw = Stopwatch()..start();
-      
+
       final response = await ApiService.registrarChecadaEmpleado(
         numeroEmpleado: numero,
         pin: pin,
-        metodoUsado: widget.metodoUsado,  // ← DINÁMICO
+        metodoUsado: widget.metodoUsado,
         fotoBase64: fotoBase64,
-        latitud: ubicacion?['latitud'],
-        longitud: ubicacion?['longitud'],
+        latitud: widget.latitud,
+        longitud: widget.longitud,
       );
-      
+
       sw.stop();
       _log('✅ Respuesta del servidor en ${sw.elapsedMilliseconds} ms');
       _log('📦 Tipo: ${response['tipoChecada']}');
@@ -207,7 +156,11 @@ class _CameraScreenState extends State<CameraScreen> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.red.shade200),
                       ),
-                      child: Text(_error!, style: const TextStyle(color: AppTheme.error), textAlign: TextAlign.center),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: AppTheme.error),
+                        textAlign: TextAlign.center,
+                      ),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -218,49 +171,17 @@ class _CameraScreenState extends State<CameraScreen> {
                       onPressed: _procesando ? null : _tomarFotoYChecar,
                       icon: _procesando
                           ? const SizedBox(
-                              width: 20, height: 20,
-                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
                           : const Icon(Icons.camera_alt),
                       label: Text(_procesando ? 'Procesando...' : 'Tomar foto y checar'),
                     ),
                   ),
-                  // 🎯 DEBUG LOG VISIBLE
-                  if (_debugLog.isNotEmpty) ...[
-                    const SizedBox(height: 24),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.black87,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Icon(Icons.bug_report, color: Colors.greenAccent, size: 16),
-                              SizedBox(width: 8),
-                              Text('Log de ejecución', style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 12)),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          ..._debugLog.map((log) => Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
-                            child: Text(
-                              log,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 11,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          )),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
               ),
             ),
